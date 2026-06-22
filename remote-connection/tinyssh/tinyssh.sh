@@ -35,7 +35,12 @@ ENABLE_TERMINAL="true"
 ENABLE_LOGS="false"     # Set to "true" to enable session logging
 LOG_DIR="logs"          # Directory where session logs will be stored
 EOF
-    echo ">>> A template '$ENV_FILE' has been created. Please edit it with your credentials before running again! <<<"
+
+    # Restrict file permissions so only the owner can read/write
+    chmod 600 "$ENV_FILE"
+    
+    echo ">>> A template '$ENV_FILE' has been created with SECURE permissions (chmod 600). <<<"
+    echo ">>> Please edit it with your credentials before running again! <<<"
     exit 0
 }
 
