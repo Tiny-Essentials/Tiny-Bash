@@ -29,7 +29,7 @@ I believe in the power of open-source and sharing knowledge.
 If you use my scripts or any modified versions of them in your own projects, **I kindly ask that you provide proper credit.** 
 
 Please include a small note in your documentation or code, such as:
-> *"Part of this project uses tools from [Tiny-Bash](link-to-your-repo), created by Yasmin Seidel."*
+> *"Part of this project uses tools from [Tiny-Bash](https://github.com/Tiny-Essentials/Tiny-Bash), created by Yasmin Seidel."*
 
 ---
 
