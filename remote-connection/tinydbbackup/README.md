@@ -15,6 +15,7 @@
     *   **Batch Export**: Automatically list all databases and allow you to select multiple targets using index numbers (e.g., `1 3 4`).
     *   **Batch Import**: Restore multiple backup files in a single continuous session.
 *   🌍 **Full Instance Backup**: Export all databases in a MongoDB instance into one consolidated archive.
+*   🤖 **JSON API Mode**: Designed for automation and CI/CD pipelines, providing machine-readable output with clear delimiters.
 *   🔍 **Database Discovery**: Automatically detects and lists all available databases for the selected engine.
 *   ⚙️ **Automated Configuration**: Generates a secure `tiny-db-config.conf` file on its first run to automate authentication.
 *   🛡️ **Security First**: Automatically sets restricted file permissions (`chmod 600`) on configuration files to protect sensitive credentials.
@@ -64,19 +65,54 @@ nano tiny-db-config.conf
 
 ## 📖 Usage Guide
 
+### 1. Interactive Mode (Terminal)
 Once the script is running, follow the interactive menu:
 
-### 1. Exporting Data
-*   **Single DB**: Choose the database type, then select `Export Single Database` and type the name.
-*   **All DBs (MongoDB)**: Choose `Export ALL Databases` to create one large `.archive` file.
-*   **Batch Export (Multi-DB)**: 
-    1. Select `Export Multiple Databases`.
-    2. The system will fetch and display a numbered list of all databases.
-    3. Enter the desired numbers separated by spaces (e.g., `1 2 5`) and press `Enter`.
+*   **Exporting Data**:
+    *   **Single DB**: Choose the database type, then select `Export Single Database` and type the name.
+    *   **All DBs (MongoDB)**: Choose `Export ALL Databases` to create one large `.archive` file.
+    *   **Batch Export (Multi-DB)**: Select `Export Multiple Databases`, then enter the desired numbers separated by spaces (e.g., `1 2 5`).
 
-### 2. Importing Data (Restore)
-*   **Single File**: Provide the exact filename (e.g., `my_database.sql` or `my_db.archive`).
-*   **Multiple Files**: Select `Import Databases`, then type the filenames separated by spaces (e.g., `db1.sql db2.sql`).
+*   **Importing Data (Restore)**:
+    *   **Single File**: Provide the exact filename (e.g., `my_database.sql`).
+    *   **Multiple Files**: Select `Import Databases`, then type the filenames separated by spaces (e.g., `db1.sql db2.sql`).
+
+---
+
+### 2. JSON API Mode (Automated)
+The script can be used without an interactive menu by providing specific flags. This is ideal for cron jobs, CI/CD pipelines, or integration with other automation tools.
+
+#### **Available Flags**
+
+| Flag | Description | Required? |
+| :--- | :--- | :--- |
+| `--json` | Enables JSON output mode. | **Yes** |
+| `--action <act>` | The operation to perform: `backup` or `restore`. | **Yes** |
+| `--db_type <type>` | The database engine: `mongodb`, `mysql`, or `postgres`. | **Yes** |
+| `--db_name <name>` | The name of the database (Required for `backup`). | **Yes** (for backup) |
+| `--file_path <path>` | The path to the backup file (Required for `restore`). | **Yes** (for restore) |
+| `--help` | Displays the help menu. | No |
+
+#### **Examples**
+
+**Backup a MongoDB database:**
+```bash
+./tinydbbackup.sh --json --action backup --db_type mongodb --db_name my_database
+```
+
+**Restore a MySQL database:**
+```bash
+./tinydbbackup.sh --json --action restore --db_type mysql --db_name target_db --file_path ./backup.sql
+```
+
+#### **Parsing the Output**
+In JSON mode, the script outputs logs normally, but the final result is enclosed in a specific delimiter block to allow easy extraction:
+
+```text
+=========================JSON-RESULT=========================
+{"status": "success", "message": "...", "details": {...}}
+=========================JSON-RESULT=========================
+```
 
 ---
 
