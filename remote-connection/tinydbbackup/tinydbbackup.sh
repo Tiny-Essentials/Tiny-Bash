@@ -79,14 +79,6 @@ show_help() {
     echo -e "${BLUE}====================================================================${NC}"
 }
 
-# --- Dependency Check ---
-check_dependencies() {
-    if [ "$JSON_MODE" = true ] && ! command -v jq &> /dev/null; then
-        echo '{"status": "error", "message": "Dependency \"jq\" is required for JSON mode."}'
-        exit 1
-    fi
-}
-
 # Function to create config if it doesn't exist
 init_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -488,7 +480,6 @@ main_menu() {
 
 # --- Execution Start ---
 init_config
-check_dependencies
 
 # --- Argument Parsing Engine ---
 while [[ $# -gt 0 ]]; do
