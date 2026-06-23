@@ -21,6 +21,12 @@ CONFIG_FILE="tiny-db-config.conf"
 CURRENT_USER=$(whoami)
 JSON_MODE=false
 
+# Variables for API Mode
+ACTION=""
+DB_TYPE=""
+DB_NAME=""
+FILE_PATH=""
+
 # --- JSON Response Helper ---
 # This function ensures that when in JSON mode, we return machine-readable data.
 # In terminal mode, it provides human-readable feedback.
@@ -29,7 +35,9 @@ respond_json() {
     local message=$2
     local details=$3
     if [ "$JSON_MODE" = true ]; then
-        printf '{"status": "%s", "message": "%s", "details": %s}\n' "$status" "$message" "${details:-"{}"}"
+        echo "=========================JSON-RESULT========================="
+        printf '{"status": "%s", "message": "%s", "details": %s}\n' "$status" "$message" "$details"
+        echo "=========================JSON-RESULT========================="
         [ "$status" = "error" ] && exit 1 || exit 0
     else
         if [ "$status" = "success" ]; then
@@ -40,10 +48,41 @@ respond_json() {
     fi
 }
 
+# --- Help Command ---
+show_help() {
+    echo -e "${BLUE}====================================================================${NC}"
+    echo -e "${BOLD}          TINY DB BACKUP SYSTEM - HELP & USAGE                      ${NC}"
+    echo -e "${BLUE}====================================================================${NC}"
+    echo -e ""
+    echo -e "${BOLD}TERMINAL MODE (Interactive):${NC}"
+    echo -e "  Run the script without arguments to enter the interactive menu."
+    echo -e "  Example: $0"
+    echo ""
+    echo -e "${BOLD}JSON API MODE (Automated):${NC}"
+    echo -e "  Use flags to execute specific tasks and receive JSON output."
+    echo -e "  Required flags for API mode:"
+    echo -e "    ${CYAN}--json${NC}             Enable JSON output mode."
+    echo -e "    ${CYAN}--action <act>${NC}    Action to perform: 'backup' or 'restore'."
+    echo -e "    ${CYAN}--db_type <type>${NC}  Database type: 'mongodb', 'mysql', or 'postgres'."
+    echo -e "    ${CYAN}--db_name <name>${NC}  Database name (Required for backup)."
+    echo -e "    ${CYAN}--file_path <path>${NC} Path to backup file (Required for restore)."
+    echo ""
+    echo -e "${BOLD}EXAMPLES:${NC}"
+    echo -e "  ${YELLOW}Backup a MongoDB database:${NC}"
+    echo -e "  $0 --json --action backup --db_type mongodb --db_name my_database"
+    echo ""
+    echo -e "  ${YELLOW}Restore a MySQL database:${NC}"
+    echo -e "  $0 --json --action restore --db_type mysql --db_name target_db --file_path ./backup.sql"
+    echo ""
+    echo -e "  ${YELLOW}Show this help:${NC}"
+    echo -e "  $0 --help"
+    echo -e "${BLUE}====================================================================${NC}"
+}
+
 # --- Dependency Check ---
 check_dependencies() {
     if [ "$JSON_MODE" = true ] && ! command -v jq &> /dev/null; then
-        echo '{"status": "error", "message": "Dependency "jq" is required for JSON mode."}'
+        echo '{"status": "error", "message": "Dependency \"jq\" is required for JSON mode."}'
         exit 1
     fi
 }
@@ -101,7 +140,7 @@ draw_footer() {
 }
 
 # =============================================================================
-# CORE LOGIC FUNCTIONS (Shared by Menu and JSON Mode)
+# CORE LOGIC FUNCTIONS
 # =============================================================================
 
 # --- MONGODB CORE ---
@@ -287,38 +326,23 @@ do_postgres_batch_export() {
 # JSON API PROCESSOR
 # =============================================================================
 
-process_json_api() {
-    local input=$1
-    # If input is a file, read it, otherwise treat as string
-    if [ -f "$input" ]; then input=$(cat "$input"); fi
-
-    # Parse JSON using jq
-    local action=$(echo "$input" | jq -r '.action // empty')
-    local db_type=$(echo "$input" | jq -r '.db_type // empty')
-    local db_name=$(echo "$input" | jq -r '.db_name // empty')
-    local file_path=$(echo "$input" | jq -r '.file_path // empty')
-
-    # Validation
-    if [[ -z "$action" || -z "$db_type" ]]; then
-        respond_json "error" "Invalid JSON schema. Required: 'action' and 'db_type'."
-    fi
-
-    case "$action" in
+process_api_logic() {
+    case "$ACTION" in
         "backup")
-            if [[ -z "$db_name" ]]; then respond_json "error" "db_name is required for backup"; fi
-            case "$db_type" in
-                "mongodb") do_mongo_backup "$db_name" ;;
-                "mysql")   do_mysql_backup "$db_name" ;;
-                "postgres") do_postgres_backup "$db_name" ;;
+            if [[ -z "$DB_NAME" ]]; then respond_json "error" "db_name is required for backup"; fi
+            case "$DB_TYPE" in
+                "mongodb") do_mongo_backup "$DB_NAME" ;;
+                "mysql")   do_mysql_backup "$DB_NAME" ;;
+                "postgres") do_postgres_backup "$DB_NAME" ;;
                 *)         respond_json "error" "Unsupported db_type for backup" ;;
             esac
             ;;
         "restore")
-            if [[ -z "$file_path" || -z "$db_name" ]]; then respond_json "error" "file_path and db_name are required for restore"; fi
-            case "$db_type" in
-                "mongodb") do_mongo_restore "$file_path" ;;
-                "mysql")   do_mysql_restore "$file_path" "$db_name" ;;
-                "postgres") do_postgres_restore "$file_path" "$db_name" ;;
+            if [[ -z "$FILE_PATH" || -z "$DB_NAME" ]]; then respond_json "error" "file_path and db_name are required for restore"; fi
+            case "$DB_TYPE" in
+                "mongodb") do_mongo_restore "$FILE_PATH" ;;
+                "mysql")   do_mysql_restore "$FILE_PATH" "$DB_NAME" ;;
+                "postgres") do_postgres_restore "$FILE_PATH" "$DB_NAME" ;;
                 *)         respond_json "error" "Unsupported db_type for restore" ;;
             esac
             ;;
@@ -330,7 +354,7 @@ process_json_api() {
 
 # =============================================================================
 # MONGODB MENU (Terminal Mode)
-# ==============================================================================
+# =============================================================================
 
 mongodb_menu() {
     while true; do
@@ -466,10 +490,48 @@ main_menu() {
 init_config
 check_dependencies
 
-# Check if running in JSON mode
-if [ "$1" = "--json" ]; then
-    JSON_MODE=true
-    process_json_api "$2"
+# --- Argument Parsing Engine ---
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --json)
+            JSON_MODE=true
+            shift
+            ;;
+        --action)
+            ACTION="$2"
+            shift 2
+            ;;
+        --db_type)
+            DB_TYPE="$2"
+            shift 2
+            ;;
+        --db_name)
+            DB_NAME="$2"
+            shift 2
+            ;;
+        --file_path)
+            FILE_PATH="$2"
+            shift 2
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown argument: $1${NC}"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# --- Main Decision Logic ---
+if [ "$JSON_MODE" = true ]; then
+    if [[ -z "$ACTION" ]]; then
+        respond_json "error" "Missing required argument: --action"
+    else
+        process_api_logic
+    fi
 else
     main_menu
 fi
