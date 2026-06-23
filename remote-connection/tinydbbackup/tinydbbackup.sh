@@ -2,8 +2,8 @@
 
 # =============================================================================
 # Script Name: tinydbbackup.sh
-# Description: Multi-database backup and restore utility.
-# Features: Single, All, and Multi-database export/import/restore.
+# Description: Multi-database backup and restore utility with JSON API support.
+# Features: Single, All, Batch, and Multi-database export/import/restore.
 # Author: Yasmin Seidel / Assistant: Isabela
 # =============================================================================
 
@@ -19,6 +19,34 @@ BOLD='\033[1m'
 # --- Configuration Setup ---
 CONFIG_FILE="tiny-db-config.conf"
 CURRENT_USER=$(whoami)
+JSON_MODE=false
+
+# --- JSON Response Helper ---
+# This function ensures that when in JSON mode, we return machine-readable data.
+# In terminal mode, it provides human-readable feedback.
+respond_json() {
+    local status=$1
+    local message=$2
+    local details=$3
+    if [ "$JSON_MODE" = true ]; then
+        printf '{"status": "%s", "message": "%s", "details": %s}\n' "$status" "$message" "${details:-"{}"}"
+        [ "$status" = "error" ] && exit 1 || exit 0
+    else
+        if [ "$status" = "success" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} $message"
+        else
+            echo -e "${RED}[ERROR]${NC} $message"
+        fi
+    fi
+}
+
+# --- Dependency Check ---
+check_dependencies() {
+    if [ "$JSON_MODE" = true ] && ! command -v jq &> /dev/null; then
+        echo '{"status": "error", "message": "Dependency "jq" is required for JSON mode."}'
+        exit 1
+    fi
+}
 
 # Function to create config if it doesn't exist
 init_config() {
@@ -60,7 +88,7 @@ EOF
 draw_header() {
     clear
     echo -e "${BLUE}====================================================================${NC}"
-    echo -e "${BOLD}          TINY DB BACKUP SYSTEM - v2.0.0                            ${NC}"
+    echo -e "${BOLD}          TINY DB BACKUP SYSTEM - v2.1.0                            ${NC}"
     echo -e "${BLUE}===================================================================${NC}"
     echo -e "${CYAN} Welcome, ${BOLD}$CURRENT_USER${NC}!${NC}"
     echo -e "${BLUE}--------------------------------------------------------------------${NC}"
@@ -73,10 +101,10 @@ draw_footer() {
 }
 
 # =============================================================================
-# MONGODB LOGIC
+# CORE LOGIC FUNCTIONS (Shared by Menu and JSON Mode)
 # =============================================================================
 
-# Function to build the authentication string based on config
+# --- MONGODB CORE ---
 get_mongo_auth() {
     local params=""
     if [ -n "$MONGO_USER" ] && [ -n "$MONGO_PASS" ]; then
@@ -87,84 +115,255 @@ get_mongo_auth() {
     echo "$params"
 }
 
-get_mongo_db_list() {
-    local auth=$(get_mongo_auth)
-    # We try mongosh first (modern), then fallback to mongo (legacy)
-    if command -v mongosh &> /dev/null; then
-        mongosh $auth --quiet --eval "db.adminCommand('listDatabases').databases.map(d => d.name).join('\n')"
-    elif command -v mongo &> /dev/null; then
-        mongo $auth --quiet --eval "db.adminCommand('listDatabases').databases.map(d => d.name).join('\n')"
+do_mongo_backup() {
+    local db_name=$1
+    local target_file="${db_name}.archive"
+    mongodump --db "$db_name" --archive="$target_file" $(get_mongo_auth)
+    if [ $? -eq 0 ]; then
+        respond_json "success" "MongoDB backup completed" "{\"db\": \"$db_name\", \"file\": \"$target_file\"}"
     else
-        echo "ERROR"
+        respond_json "error" "MongoDB backup failed" "{\"db\": \"$db_name\"}"
     fi
 }
+
+do_mongo_restore() {
+    local file=$1
+    local db_name="${file%.archive}"
+    if [ ! -f "$file" ]; then respond_json "error" "File not found" "{\"file\": \"$file\"}"; fi
+    mongorestore --nsInclude="${db_name}.*" --archive="$file" $(get_mongo_auth)
+    if [ $? -eq 0 ]; then
+        respond_json "success" "MongoDB restore completed" "{\"db\": \"$db_name\", \"file\": \"$file\"}"
+    else
+        respond_json "error" "MongoDB restore failed" "{\"db\": \"$db_name\"}"
+    fi
+}
+
+# --- MYSQL CORE ---
+do_mysql_backup() {
+    local db_name=$1
+    local target_file="${db_name}.sql"
+    mysqldump -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$db_name" > "$target_file"
+    if [ $? -eq 0 ]; then
+        respond_json "success" "MySQL backup completed" "{\"db\": \"$db_name\", \"file\": \"$target_file\"}"
+    else
+        respond_json "error" "MySQL backup failed" "{\"db\": \"$db_name\"}"
+    fi
+}
+
+do_mysql_restore() {
+    local file=$1
+    local db_name=$2
+    if [ ! -f "$file" ]; then respond_json "error" "File not found" "{\"file\": \"$file\"}"; fi
+    mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$db_name" < "$file"
+    if [ $? -eq 0 ]; then
+        respond_json "success" "MySQL restore completed" "{\"db\": \"$db_name\", \"file\": \"$file\"}"
+    else
+        respond_json "error" "MySQL restore failed" "{\"db\": \"$db_name\"}"
+    fi
+}
+
+# --- POSTGRES CORE ---
+do_postgres_backup() {
+    local db_name=$1
+    local target_file="${db_name}.sql"
+    PGPASSWORD="$POSTGRES_PASS" pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$db_name" > "$target_file"
+    if [ $? -eq 0 ]; then
+        respond_json "success" "PostgreSQL backup completed" "{\"db\": \"$db_name\", \"file\": \"$target_file\"}"
+    else
+        respond_json "error" "PostgreSQL backup failed" "{\"db\": \"$db_name\"}"
+    fi
+}
+
+do_postgres_restore() {
+    local file=$1
+    local db_name=$2
+    if [ ! -f "$file" ]; then respond_json "error" "File not found" "{\"file\": \"$file\"}"; fi
+    PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$db_name" -f "$file"
+    if [ $? -eq 0 ]; then
+        respond_json "success" "PostgreSQL restore completed" "{\"db\": \"$db_name\", \"file\": \"$file\"}"
+    else
+        respond_json "error" "PostgreSQL restore failed" "{\"db\": \"$db_name\"}"
+    fi
+}
+
+# =============================================================================
+# BATCH EXPORT LOGIC (Terminal Mode Only)
+# =============================================================================
+
+do_mongo_batch_export() {
+    draw_header
+    echo -e "${CYAN}Fetching database list...${NC}"
+    # Get list of DB names using mongosh
+    mapfile -t dbs < <(mongosh $(get_mongo_auth) --quiet --eval "db.adminCommand('listDatabases').databases.forEach(d => print(d.name))")
+
+    if [ ${#dbs[@]} -eq 0 ]; then
+        echo -e "${RED}No databases found.${NC}"
+        draw_footer
+        return
+    fi
+
+    echo -e "${BOLD}Available Databases:${NC}"
+    for i in "${!dbs[@]}"; do
+        echo -e "$((i+1))) ${dbs[$i]}"
+    done
+    echo ""
+    read -p "Enter numbers (e.g. 1 2): " selection
+    read -ra choices <<< "$selection"
+
+    for choice in "${choices[@]}"; do
+        idx=$((choice-1))
+        if [[ $idx -ge 0 && $idx -lt ${#dbs[@]} ]]; then
+            do_mongo_backup "${dbs[$idx]}"
+        else
+            echo -e "${RED}[!] Invalid index: $choice${NC}"
+        fi
+    done
+    draw_footer
+}
+
+do_mysql_batch_export() {
+    draw_header
+    echo -e "${CYAN}Fetching database list...${NC}"
+    # -N: skip headers, -s: silent/raw
+    mapfile -t dbs < <(mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" -N -s -e "SHOW DATABASES;")
+
+    if [ ${#dbs[@]} -eq 0 ]; then
+        echo -e "${RED}No databases found.${NC}"
+        draw_footer
+        return
+    fi
+
+    echo -e "${BOLD}Available Databases:${NC}"
+    for i in "${!dbs[@]}"; do
+        echo -e "$((i+1))) ${dbs[$i]}"
+    done
+    echo ""
+    read -p "Enter numbers (e.g. 1 2): " selection
+    read -ra choices <<< "$selection"
+
+    for choice in "${choices[@]}"; do
+        idx=$((choice-1))
+        if [[ $idx -ge 0 && $idx -lt ${#dbs[@]} ]]; then
+            do_mysql_backup "${dbs[$idx]}"
+        else
+            echo -e "${RED}[!] Invalid index: $choice${NC}"
+        fi
+    done
+    draw_footer
+}
+
+do_postgres_batch_export() {
+    draw_header
+    echo -e "${CYAN}Fetching database list...${NC}"
+    # -t: tuples only, -A: unaligned (clean list)
+    mapfile -t dbs < <(PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -t -A -c "\l")
+
+    if [ ${#dbs[@]} -eq 0 ]; then
+        echo -e "${RED}No databases found.${NC}"
+        draw_footer
+        return
+    fi
+
+    echo -e "${BOLD}Available Databases:${NC}"
+    for i in "${!dbs[@]}"; do
+        echo -e "$((i+1))) ${dbs[$i]}"
+    done
+    echo ""
+    read -p "Enter numbers (e.g. 1 2): " selection
+    read -ra choices <<< "$selection"
+
+    for choice in "${choices[@]}"; do
+        idx=$((choice-1))
+        if [[ $idx -ge 0 && $idx -lt ${#dbs[@]} ]]; then
+            do_postgres_backup "${dbs[$idx]}"
+        else
+            echo -e "${RED}[!] Invalid index: $choice${NC}"
+        fi
+    done
+    draw_footer
+}
+
+# =============================================================================
+# JSON API PROCESSOR
+# =============================================================================
+
+process_json_api() {
+    local input=$1
+    # If input is a file, read it, otherwise treat as string
+    if [ -f "$input" ]; then input=$(cat "$input"); fi
+
+    # Parse JSON using jq
+    local action=$(echo "$input" | jq -r '.action // empty')
+    local db_type=$(echo "$input" | jq -r '.db_type // empty')
+    local db_name=$(echo "$input" | jq -r '.db_name // empty')
+    local file_path=$(echo "$input" | jq -r '.file_path // empty')
+
+    # Validation
+    if [[ -z "$action" || -z "$db_type" ]]; then
+        respond_json "error" "Invalid JSON schema. Required: 'action' and 'db_type'."
+    fi
+
+    case "$action" in
+        "backup")
+            if [[ -z "$db_name" ]]; then respond_json "error" "db_name is required for backup"; fi
+            case "$db_type" in
+                "mongodb") do_mongo_backup "$db_name" ;;
+                "mysql")   do_mysql_backup "$db_name" ;;
+                "postgres") do_postgres_backup "$db_name" ;;
+                *)         respond_json "error" "Unsupported db_type for backup" ;;
+            esac
+            ;;
+        "restore")
+            if [[ -z "$file_path" || -z "$db_name" ]]; then respond_json "error" "file_path and db_name are required for restore"; fi
+            case "$db_type" in
+                "mongodb") do_mongo_restore "$file_path" ;;
+                "mysql")   do_mysql_restore "$file_path" "$db_name" ;;
+                "postgres") do_postgres_restore "$file_path" "$db_name" ;;
+                *)         respond_json "error" "Unsupported db_type for restore" ;;
+            esac
+            ;;
+        *)
+            respond_json "error" "Invalid action. Use 'backup' or 'restore'."
+            ;;
+    esac
+}
+
+# =============================================================================
+# MONGODB MENU (Terminal Mode)
+# ==============================================================================
 
 mongodb_menu() {
     while true; do
         draw_header
         echo -e "${BOLD}DATABASE TYPE: MongoDB${NC}"
         echo -e "1) Export Single Database"
-        echo -e "2) Export ALL Databases (Single Archive)"
-        echo -e "3) Export Multiple Databases (Batch)"
+        echo -e "2) Export ALL Databases"
+        echo -e "3) Export Multiple Databases"
         echo -e "4) List All Databases"
-        echo -e "5) Import Single Database (Restore)"
-        echo -e "6) Import Multiple Databases (Batch)"
-        echo -e "7) Back to Main Menu"
+        echo -e "5) Import Databases"
+        echo -e "6) Back to Main Menu"
         echo ""
         read -p " Select an option [1-7]: " choice
-
         case $choice in
-            1)
-                draw_header
-                read -p " Enter database name: " db_name
-                [ -z "$db_name" ] && echo -e "${RED}Invalid name.${NC}" || mongodump --db "$db_name" --archive="${db_name}.archive" $(get_mongo_auth)
-                draw_footer ;;
-            2)
-                draw_header
-                mongodump --archive="all_mongo_dbs.archive" $(get_mongo_auth)
-                draw_footer ;;
-            3)
-                draw_header
-                # Get list and store in array
-                IFS=$'\n' read -d '' -r -a db_array < <(get_mongo_db_list)
-                if [[ "${db_array[0]}" == "ERROR" ]]; then
-                    echo -e "${RED}Connection Error.${NC}"
-                else
-                    for i in "${!db_array[@]}"; do echo -e "$((i+1))) ${db_array[$i]}"; done
-                    read -p " Enter numbers (e.g. 1 2): " sel
-                    read -ra idxs <<< "$sel"
-                    for i in "${idxs[@]}"; do
-                        real=$((i-1))
-                        [ $real -ge 0 ] && mongodump --db "${db_array[$real]}" --archive="${db_array[$real]}.archive" $(get_mongo_auth)
-                    done
-                fi
-                draw_footer ;;
-            4)
-                draw_header
-                get_mongo_db_list
-                draw_footer ;;
-            5)
-                draw_header
-                read -p " Enter archive file: " file
-                mongorestore --nsInclude="${file%.archive}.*" --archive="$file" $(get_mongo_auth)
-                draw_footer ;;
-            6)
+            1) draw_header; read -p " Enter database name: " db_name; do_mongo_backup "$db_name"; draw_footer ;;
+            2) draw_header; mongodump --archive="all_mongo_dbs.archive" $(get_mongo_auth); draw_footer ;;
+            3) do_mongo_batch_export ;;
+            4) draw_header; mongosh $(get_mongo_auth) --quiet --eval "db.adminCommand('listDatabases').databases.map(d => d.name).join('\n')"; draw_footer ;;
+            5) 
                 draw_header
                 echo -e "${CYAN}Enter archive files separated by space:${NC}"
                 read -p " Files: " selection
                 read -ra files <<< "$selection"
-                for f in "${files[@]}"; do
-                    mongorestore --nsInclude="${f%.archive}.*" --archive="$f" $(get_mongo_auth)
-                done
+                for f in "${files[@]}"; do do_mongo_restore "$f"; done
                 draw_footer ;;
-            7) break ;;
+            6) break ;;
             *) echo -e "${RED}Invalid.${NC}"; sleep 1 ;;
         esac
     done
 }
 
 # =============================================================================
-# MYSQL / MARIADB LOGIC
+# MYSQL / MARIADB MENU (Terminal Mode)
 # =============================================================================
 
 mysql_menu() {
@@ -172,38 +371,17 @@ mysql_menu() {
         draw_header
         echo -e "${BOLD}DATABASE TYPE: MySQL / MariaDB${NC}"
         echo -e "1) Export Single Database"
-        echo -e "2) Export ALL Databases"
+        echo -e "2) Export Multiple Databases"
         echo -e "3) List All Databases"
-        echo -e "4) Import Single Database (Restore)"
-        echo -e "5) Import Multiple Databases (Batch)"
-        echo -e "6) Back to Main Menu"
+        echo -e "4) Import Databases"
+        echo -e "5) Back to Main Menu"
         echo ""
         read -p " Select an option [1-6]: " choice
-
         case $choice in
-            1)
-                draw_header
-                read -p " Enter database name: " db_name
-                mysqldump -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$db_name" > "${db_name}.sql"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] ${db_name}.sql created.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            2)
-                draw_header
-                mysqldump -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" --all-databases > "all_mysql_dbs.sql"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] all_mysql_dbs.sql created.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            3)
-                draw_header
-                mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" -e "SHOW DATABASES;"
-                draw_footer ;;
-            4)
-                draw_header
-                read -p " Enter .sql file: " file
-                read -p " Enter target database name: " db_name
-                mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$db_name" < "$file"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] Restore complete.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            5)
+            1) draw_header; read -p " Enter database name: " db_name; do_mysql_backup "$db_name"; draw_footer ;;
+            2) do_mysql_batch_export ;;
+            3) draw_header; mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" -e "SHOW DATABASES;"; draw_footer ;;
+            4) 
                 draw_header
                 echo -e "${CYAN}Enter .sql files separated by space:${NC}"
                 read -p " Files: " selection
@@ -211,21 +389,20 @@ mysql_menu() {
                 for f in "${files[@]}"; do
                     if [ -f "$f" ]; then
                         read -p " Target DB for $f: " db_name
-                        mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$db_name" < "$f"
-                        [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] $f restored.${NC}" || echo -e "${RED}[ERROR] $f failed.${NC}"
+                        do_mysql_restore "$f" "$db_name"
                     else
                         echo -e "${RED}[!] File $f not found.${NC}"
                     fi
                 done
                 draw_footer ;;
-            6) break ;;
+            5) break ;;
             *) echo -e "${RED}Invalid.${NC}"; sleep 1 ;;
         esac
     done
 }
 
-# =============================================================================
-# POSTGRESQL LOGIC
+# ===============================================================================
+# POSTGRESQL MENU (Terminal Mode)
 # ===============================================================================
 
 postgres_menu() {
@@ -233,39 +410,17 @@ postgres_menu() {
         draw_header
         echo -e "${BOLD}DATABASE TYPE: PostgreSQL${NC}"
         echo -e "1) Export Single Database"
-        echo -e "2) Export ALL Databases"
+        echo -e "2) Export Multiple Databases"
         echo -e "3) List All Databases"
-        echo -e "4) Import Single Database (Restore)"
-        echo -e "5) Import Multiple Databases (Batch)"
-        echo -e "6) Back to Main Menu"
+        echo -e "4) Import Databases"
+        echo -e "5) Back to Main Menu"
         echo ""
         read -p " Select an option [1-6]: " choice
-
         case $choice in
-            1)
-                draw_header
-                read -p " Enter database name: " db_name
-                # Using PGPASSWORD for non-interactive automation
-                PGPASSWORD="$POSTGRES_PASS" pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$db_name" > "${db_name}.sql"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] ${db_name}.sql created.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            2)
-                draw_header
-                PGPASSWORD="$POSTGRES_PASS" pg_dumpall -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" > "all_postgres_dbs.sql"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] all_postgres_dbs.sql created.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            3)
-                draw_header
-                PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -t -c "\l"
-                draw_footer ;;
-            4)
-                draw_header
-                read -p " Enter .sql file: " file
-                read -p " Enter target database name: " db_name
-                PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$db_name" -f "$file"
-                [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] Restore complete.${NC}" || echo -e "${RED}[ERROR] Failed.${NC}"
-                draw_footer ;;
-            5)
+            1) draw_header; read -p " Enter database name: " db_name; do_postgres_backup "$db_name"; draw_footer ;;
+            2) do_postgres_batch_export ;;
+            3) draw_header; PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -t -c "\l"; draw_footer ;;
+            4) 
                 draw_header
                 echo -e "${CYAN}Enter .sql files separated by space:${NC}"
                 read -p " Files: " selection
@@ -273,14 +428,13 @@ postgres_menu() {
                 for f in "${files[@]}"; do
                     if [ -f "$f" ]; then
                         read -p " Target DB for $f: " db_name
-                        PGPASSWORD="$POSTGRES_PASS" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$db_name" -f "$f"
-                        [ $? -eq 0 ] && echo -e "${GREEN}[SUCCESS] $f restored.${NC}" || echo -e "${RED}[ERROR] $f failed.${NC}"
+                        do_postgres_restore "$f" "$db_name"
                     else
                         echo -e "${RED}[!] File $f not found.${NC}"
                     fi
                 done
                 draw_footer ;;
-            6) break ;;
+            5) break ;;
             *) echo -e "${RED}Invalid.${NC}"; sleep 1 ;;
         esac
     done
@@ -293,19 +447,15 @@ main_menu() {
         draw_header
         echo -e " Select the type of database to manage:"
         echo -e " 1) MongoDB"
-        echo -e " 2) MySQL / MariaDB (Test)"
-        echo -e " 3) PostgreSQL (Test)"
+        echo -e " 2) MySQL / MariaDB (Not tested)"
+        echo -e " 3) PostgreSQL (Not tested)"
         echo -e " 4) Exit"
         echo ""
         read -p " Choice: " main_choice
-
         case $main_choice in
-            1)
-                if command -v mongodump &> /dev/null; then mongodb_menu; else echo -e "${RED}[ERROR] MongoDB tools not found.${NC}"; sleep 2; fi ;;
-            2)
-                if command -v mysqldump &> /dev/null; then mysql_menu; else echo -e "${RED}[ERROR] MySQL tools not found.${NC}"; sleep 2; fi ;;
-            3)
-                if command -v pg_dump &> /dev/null; then postgres_menu; else echo -e "${RED}[ERROR] PostgreSQL tools not found.${NC}"; sleep 2; fi ;;
+            1) if command -v mongodump &> /dev/null; then mongodb_menu; else echo -e "${RED}Error: MongoDB tools not found.${NC}"; sleep 2; fi ;;
+            2) if command -v mysqldump &> /dev/null; then mysql_menu; else echo -e "${RED}Error: MySQL tools not found.${NC}"; sleep 2; fi ;;
+            3) if command -v pg_dump &> /dev/null; then postgres_menu; else echo -e "${RED}Error: PostgreSQL tools not found.${NC}"; sleep 2; fi ;;
             4) echo -e "${GREEN}Tiny Goodbye, $CURRENT_USER!${NC}"; exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -314,4 +464,12 @@ main_menu() {
 
 # --- Execution Start ---
 init_config
-main_menu
+check_dependencies
+
+# Check if running in JSON mode
+if [ "$1" = "--json" ]; then
+    JSON_MODE=true
+    process_json_api "$2"
+else
+    main_menu
+fi
