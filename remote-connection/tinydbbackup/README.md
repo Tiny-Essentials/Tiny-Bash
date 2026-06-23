@@ -1,32 +1,34 @@
 # 🚀 Tiny DB Backup System
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-2.1.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-orange)
 
-**Tiny DB Backup System** is a terminal-based utility designed for efficient database backup. It provides a streamlined interface to perform backups and restores for MongoDB instances, supporting single, batch, and full-instance operations.
+**Tiny DB Backup System** is a terminal-based utility designed for efficient multi-database management. It provides a streamlined, interactive interface to perform backups and restores for **MongoDB**, **MySQL/MariaDB**, and **PostgreSQL** instances, supporting single, batch, and full-instance operations.
 
 ---
 
 ## ✨ Key Features
 
-*   📦 **Single Database Management**: Backup or restore a specific database into a single `.archive` file.
-*   🌍 **Full Instance Backup**: Export all databases in the instance into one consolidated archive.
-*   🔄 **Batch Operations**: 
-    *   **Export**: Select multiple databases from a list to backup simultaneously.
-    *   **Restore**: Import multiple `.archive` files in a single session.
-*   🔍 **Database Discovery**: Automatically detects and lists all available databases in your MongoDB instance.
-*   ⚙️ **Automated Configuration**: Generates a secure configuration file on its first run to automate authentication.
-*   🛡️ **Security First**: Automatically sets restricted file permissions (`chmod 600`) on configuration files to protect credentials.
+*   🗄️ **Multi-Database Support**: Unified management for MongoDB, MySQL/MariaDB, and PostgreSQL.
+*   📦 **Single Database Management**: Backup or restore a specific database into a single file (`.archive` for MongoDB, `.sql` for MySQL/Postgres).
+*   🔄 **Advanced Batch Operations**: 
+    *   **Batch Export**: Automatically list all databases and allow you to select multiple targets using index numbers (e.g., `1 3 4`).
+    *   **Batch Import**: Restore multiple backup files in a single continuous session.
+*   🌍 **Full Instance Backup**: Export all databases in a MongoDB instance into one consolidated archive.
+*   🔍 **Database Discovery**: Automatically detects and lists all available databases for the selected engine.
+*   ⚙️ **Automated Configuration**: Generates a secure `tiny-db-config.conf` file on its first run to automate authentication.
+*   🛡️ **Security First**: Automatically sets restricted file permissions (`chmod 600`) on configuration files to protect sensitive credentials.
 
 ---
 
 ## 🛠️ Prerequisites
 
-Before running the script, ensure your environment meets the following requirements:
+Ensure your environment has the necessary database client tools installed and available in your `$PATH`:
 
 1.  **Linux/Unix Environment**: Designed for Bash shells.
-2.  **MongoDB Database Tools**: Must have `mongodump` and `mongorestore` installed and available in your `$PATH`.
-3.  **MongoDB Shell**: `mongosh` (recommended) or `mongo` must be installed to allow database listing.
+2.  **MongoDB Tools**: `mongodump`, `mongorestore`, and `mongosh`.
+3.  **MySQL/MariaDB Tools**: `mysqldump` and `mysql`.
+4.  **PostgreSQL Tools**: `pg_dump` and `psql`.
 
 ---
 
@@ -52,23 +54,11 @@ Before running the script, ensure your environment meets the following requireme
 
 ## 📝 Configuration
 
-To automate your connection, edit the generated `tiny-db-config.conf` file. This is essential if your MongoDB requires authentication.
+To automate your connections, edit the generated `tiny-db-config.conf` file. This prevents the need to type credentials manually and keeps them out of the command history.
 
 ```bash
 nano tiny-db-config.conf
 ```
-
-**Configuration Parameters:**
-| Parameter | Description |
-| :--- | :--- |
-| `MONGO_HOST` | The IP address or hostname of your MongoDB server. |
-| `MONGO_PORT` | The port number (default is `27017`). |
-| `MONGO_USER` | Your database username (leave empty for no auth). |
-| `MONGO_PASS` | Your database password (leave empty for no auth). |
-| `MONGO_AUTH_DB` | The database used for authentication (usually `admin`). |
-
-> [!IMPORTANT]
-> **Security Note**: The configuration file is protected with `chmod 600`, meaning only your Linux user can read or write to it.
 
 ---
 
@@ -77,32 +67,21 @@ nano tiny-db-config.conf
 Once the script is running, follow the interactive menu:
 
 ### 1. Exporting Data
-*   **Single DB**: Choose option `1`, then type the exact name of the database.
-*   **All DBs**: Choose option `2` to create a massive `all_databases.archive` file.
-*   **Batch Export**: Choose option `3`. The script will show a numbered list. Type the numbers you want (e.g., `1 3 5`) separated by spaces.
+*   **Single DB**: Choose the database type, then select `Export Single Database` and type the name.
+*   **All DBs (MongoDB)**: Choose `Export ALL Databases` to create one large `.archive` file.
+*   **Batch Export (Multi-DB)**: 
+    1. Select `Export Multiple Databases`.
+    2. The system will fetch and display a numbered list of all databases.
+    3. Enter the desired numbers separated by spaces (e.g., `1 2 5`) and press `Enter`.
 
 ### 2. Importing Data (Restore)
-*   **Single File**: Choose option `5` and provide the filename (e.g., `my_db.archive`).
-*   **Multiple Files**: Choose option `6`. Type the names of all files you wish to restore, separated by spaces (e.g., `db1.archive db2.archive`).
-
----
-
-## 📋 Menu Structure Reference
-
-| Option | Action | Description |
-| :--- | :--- | :--- |
-| **1** | `Export Single` | Backup one specific database. |
-| **2** | `Export ALL` | Backup the entire MongoDB instance. |
-| **3** | `Export Batch` | Backup multiple selected databases. |
-| **4** | `List DBs` | Display all databases found on the server. |
-| **5** | `Import Single` | Restore from one `.archive` file. |
-| **6** | `Import Batch` | Restore from multiple `.archive` files. |
-| **7** | `Back` | Return to the main database selection menu. |
+*   **Single File**: Provide the exact filename (e.g., `my_database.sql` or `my_db.archive`).
+*   **Multiple Files**: Select `Import Databases`, then type the filenames separated by spaces (e.g., `db1.sql db2.sql`).
 
 ---
 
 ## 🛡️ Security & Best Practices
 
-*   **Credentials**: Always use the `tiny-db-config.conf` file instead of passing passwords directly in commands to prevent them from appearing in process logs.
-*   **File Integrity**: Always verify the existence of your `.archive` files before attempting a restore.
-*   **Environment**: It is recommended to run this script in a controlled environment with appropriate user privileges.
+*   **Credential Safety**: Always use the `tiny-db-config.conf` file. Never hardcode passwords in scripts or pass them as direct command-line arguments.
+*   **Verification**: After a batch operation, verify that the expected number of `.sql` or `.archive` files were created in your directory.
+*   **Permissions**: If you move the script to another machine, ensure you re-apply `chmod 600` to your configuration file.
