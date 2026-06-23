@@ -343,7 +343,7 @@ mongodb_menu() {
         echo -e "5) Import Databases"
         echo -e "6) Back to Main Menu"
         echo ""
-        read -p " Select an option [1-7]: " choice
+        read -p " Select an option [1-6]: " choice
         case $choice in
             1) draw_header; read -p " Enter database name: " db_name; do_mongo_backup "$db_name"; draw_footer ;;
             2) draw_header; mongodump --archive="all_mongo_dbs.archive" $(get_mongo_auth); draw_footer ;;
@@ -376,7 +376,7 @@ mysql_menu() {
         echo -e "4) Import Databases"
         echo -e "5) Back to Main Menu"
         echo ""
-        read -p " Select an option [1-6]: " choice
+        read -p " Select an option [1-5]: " choice
         case $choice in
             1) draw_header; read -p " Enter database name: " db_name; do_mysql_backup "$db_name"; draw_footer ;;
             2) do_mysql_batch_export ;;
@@ -415,7 +415,7 @@ postgres_menu() {
         echo -e "4) Import Databases"
         echo -e "5) Back to Main Menu"
         echo ""
-        read -p " Select an option [1-6]: " choice
+        read -p " Select an option [1-5]: " choice
         case $choice in
             1) draw_header; read -p " Enter database name: " db_name; do_postgres_backup "$db_name"; draw_footer ;;
             2) do_postgres_batch_export ;;
