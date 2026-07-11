@@ -162,4 +162,3 @@ cd ~/ssh/sessions/friend2
 
 > [!IMPORTANT]
 > **Technical Requirement**: For this method to work, your `tinyssh.sh` script must load the configuration using `source .env` (which looks in the current working directory) instead of searching for the `.env` relative to the script's own location.
-```
