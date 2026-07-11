@@ -106,3 +106,60 @@ You can mix simple ports and custom mappings:
 | :--- | :--- |
 | `-h, --help` | Displays the built-in help guide. |
 | `[ports...]` | Positional arguments to override `.env` port settings. |
+
+---
+
+## 📂 Pro Tip: Multi-Session Management (Symlinks)
+
+If you manage multiple remote servers, you don't need multiple copies of the script. You can use a single central script and create "session folders" that contain only their specific `.env` files. This keeps your configurations organized and your logic centralized.
+
+### 🏗️ Recommended Directory Structure
+
+```text
+~/ssh/
+├── tinyssh.sh (The main, master script)
+└── sessions/
+    ├── friend1/
+    │   ├── .env (Specific credentials for Friend 1)
+    │   └── tinyssh.sh (Symlink to the master script)
+    └── friend2/
+        ├── .env (Specific credentials for Friend 2)
+        └── tinyssh.sh (Symlink to the master script)
+```
+
+### 🛠️ Quick Setup
+
+1. **Create your session directories:**
+   ```bash
+   mkdir -p ~/ssh/sessions/friend1 ~/ssh/sessions/friend2
+   ```
+
+2. **Create the unique `.env` for each session:**
+   ```bash
+   touch ~/ssh/sessions/friend1/.env
+   touch ~/ssh/sessions/friend2/.env
+   ```
+
+3. **Create symbolic links (symlinks) to the master script:**
+   ```bash
+   ln -s ~/ssh/tinyssh.sh ~/ssh/sessions/friend1/tinyssh.sh
+   ln -s ~/ssh/tinyssh.sh ~/ssh/sessions/friend2/tinyssh.sh
+   ```
+
+### 🚀 Usage
+
+Simply navigate to the desired session folder and run the script. It will automatically detect and use the `.env` file located in that specific folder.
+
+```bash
+# Access Friend 1's server
+cd ~/ssh/sessions/friend1
+./tinyssh.sh
+
+# Access Friend 2's server
+cd ~/ssh/sessions/friend2
+./tinyssh.sh
+```
+
+> [!IMPORTANT]
+> **Technical Requirement**: For this method to work, your `tinyssh.sh` script must load the configuration using `source .env` (which looks in the current working directory) instead of searching for the `.env` relative to the script's own location.
+```
