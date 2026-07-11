@@ -175,6 +175,7 @@ run_ssh_tunnel() {
     [ -n "$IDENTITY_FILE" ] && echo "Identity File Path:      $IDENTITY_FILE"
     echo "Operation Mode:          $( [ "$ENABLE_TERMINAL" = "true" ] && echo "Interactive Terminal Session" || echo "Tunnel Only (Quiet)")"
     echo "----------------------------------------"
+    echo "sshpass -p \"*******\" ssh $ID_OPT $N_FLAG $TUNNEL_FLAGS \"$REMOTE_HOST\" -p \"$DEFAULT_SSH_PORT\""
 
     # Executing the command with all generated tunnels
     sshpass -p "$PASSWORD_HOST" ssh $ID_OPT $N_FLAG $TUNNEL_FLAGS "$REMOTE_HOST" -p "$DEFAULT_SSH_PORT"
