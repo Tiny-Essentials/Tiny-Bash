@@ -11,7 +11,8 @@ create_default_env() {
     echo "Creating a default $ENV_FILE file..."
     cat << EOF > "$ENV_FILE"
 # --- Tiny SSH Configuration File ---
-REMOTE_HOST=""          # The remote host you want to access. Ex: server.example.com
+HOST_ALIAS="example-server" # Alias name for SSH config generation
+REMOTE_HOST=""          # The remote host you want to access. Ex: user@server.example.com
 PASSWORD_HOST=""        # The SSH password (Use sshpass -p)
 DEFAULT_SSH_PORT=22     # Port through which the SSH tunnel will be established
 
@@ -58,10 +59,11 @@ show_help() {
     echo "      Tiny SSH Tunneling Script - Help Guide :3"
     echo "========================================================================="
     echo "Usage:"
-    echo "  $0 [ports...]"
+    echo "  $0 [options] [ports...]"
     echo ""
     echo "Options:"
-    echo "  -h, --help    Show this beautiful help message and exit."
+    echo "  -h, --help               Show this beautiful help message and exit."
+    echo "  -g, --generate-config    Generate an SSH config file snippet based on .env"
     echo ""
     echo "Examples of usage:"
     echo "  1. Default mode (No arguments):"
@@ -69,11 +71,15 @@ show_help() {
     echo "     -> Automatically mirrors all ports configured in your .env inside"
     echo "        the DEFAULT_HOST_PORT variable (Current: $DEFAULT_HOST_PORT)."
     echo ""
-    echo "  2. Overriding with specific ports via CLI:"
+    echo "  2. Generate SSH config file:"
+    echo "     $0 -g"
+    echo "     $0 --generate-config 8080:80 3000:3000"
+    echo ""
+    echo "  3. Overriding with specific ports via CLI:"
     echo "     $0 8080 3000 9000"
     echo "     -> Ignores the .env defaults and maps local 8080, 3000, and 9000."
     echo ""
-    echo "  3. Custom local-to-remote mapping via CLI (Using ':'):"
+    echo "  4. Custom local-to-remote mapping via CLI (Using ':'):"
     echo "     $0 8080:80 3000:3000"
     echo "     -> Maps local 8080 to remote 80, and local 3000 to remote 3000."
     echo ""
@@ -81,10 +87,77 @@ show_help() {
     echo "========================================================================="
 }
 
+# Function to generate the SSH config file snippet
+generate_ssh_config() {
+    local CONFIG_FILE="ssh_config_generated.txt"
+    local TARGET_USER="$USER"
+    local TARGET_HOST="$REMOTE_HOST"
+    
+    # Extract user and hostname if REMOTE_HOST is formatted as user@hostname
+    if [[ "$REMOTE_HOST" == *"@"* ]]; then
+        TARGET_USER="${REMOTE_HOST%%@*}"
+        TARGET_HOST="${REMOTE_HOST#*@}"
+    fi
+    
+    # Fallback if HOST_ALIAS is not set in an older .env file
+    local ALIAS="${HOST_ALIAS:-tiny-ssh-server}"
+
+    echo "Generating SSH config to $CONFIG_FILE..."
+    
+    # Write the block to the file
+    cat << EOF > "$CONFIG_FILE"
+Host $ALIAS
+    HostName $TARGET_HOST
+    User $TARGET_USER
+    Port $DEFAULT_SSH_PORT
+EOF
+
+    if [ -n "$IDENTITY_FILE" ]; then
+        echo "    IdentityFile $IDENTITY_FILE" >> "$CONFIG_FILE"
+    fi
+
+    echo "    # LocalForward [Local_Port] [Remote_Destination]" >> "$CONFIG_FILE"
+
+    # Use CLI args if provided, otherwise use .env defaults
+    local PORTS_ARRAY
+    if [ $# -eq 0 ]; then
+        # shellcheck disable=SC2206
+        PORTS_ARRAY=($DEFAULT_HOST_PORT)
+    else
+        PORTS_ARRAY=("$@")
+    fi
+
+    # Append the port forwarding rules
+    for PORT in "${PORTS_ARRAY[@]}"; do
+        local L_PORT R_PORT
+        if [[ "$PORT" == *":"* ]]; then
+            L_PORT="${PORT%%:*}"
+            R_PORT="${PORT#*:}"
+        else
+            L_PORT="$PORT"
+            R_PORT="$PORT"
+        fi
+        
+        echo "    LocalForward $L_PORT $BIND_ADDRESS:$R_PORT" >> "$CONFIG_FILE"
+    done
+
+    echo ">>> File '$CONFIG_FILE' successfully generated! <<<"
+    echo "----------------------------------------------------"
+    cat "$CONFIG_FILE"
+    echo "----------------------------------------------------"
+    exit 0
+}
+
 # Check for help flags
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     show_help
     exit 0
+fi
+
+# Check for generate config flags
+if [ "$1" = "-g" ] || [ "$1" = "--generate-config" ]; then
+    shift # Remove the flag from the arguments list
+    generate_ssh_config "$@" # Pass any remaining port overrides to the function
 fi
 
 # Function to check and install dependencies
