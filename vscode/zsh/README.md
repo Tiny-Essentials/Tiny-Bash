@@ -29,6 +29,7 @@ To use Oh My Zsh inside VS Code without changing your system-wide terminal defau
 1. Open **Visual Studio Code**.
 2. Press `Ctrl + ,` to open **Settings**.
 3. In the search bar at the top, enter:
+
 ```text
 terminal.integrated.defaultProfile.linux
 ```
@@ -42,8 +43,27 @@ terminal.integrated.defaultProfile.linux
 1. Press `Ctrl + Shift + P` to open the Command Palette.
 2. Type `Preferences: Open User Settings (JSON)` and press `Enter`.
 3. Add the following line inside your settings JSON object:
+
 ```json
 "terminal.integrated.defaultProfile.linux": "zsh"
+```
+
+---
+
+## NVM & Node.js Environment Fix (Fix "command not found: npm / yarn")
+
+If VS Code's integrated Zsh terminal returns `zsh: command not found: npm` or `yarn`, it usually means your NVM/Node environment variables are not being loaded automatically when opening a new shell session.
+
+Open your `settings.json` in VS Code (`Ctrl + Shift + P` -> `Preferences: Open User Settings (JSON)`) and configure `terminal.integrated.profiles.linux` as follows:
+
+```json
+"terminal.integrated.profiles.linux": {
+  "zsh": {
+    "path": "/usr/bin/zsh",
+    "args": ["-l"]
+  }
+}
+
 ```
 
 ---
@@ -52,3 +72,4 @@ terminal.integrated.defaultProfile.linux
 
 1. Open a new terminal in VS Code using `Ctrl + Shift + '` (or via **Terminal -> New Terminal**).
 2. You should now see the `robbyrussell` prompt featuring Git branch status indicators (e.g., `➜  project git:(main) ✗`).
+3. Run `node -v` and `npm -v` to ensure your binaries are fully recognized by Zsh.
